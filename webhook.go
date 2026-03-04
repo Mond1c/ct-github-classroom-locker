@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/go-github/v60/github"
@@ -75,10 +76,16 @@ func (wh *WebhookHandler) handleReviewRequested(ctx context.Context, event *gith
 		return
 	}
 
+	sender := event.GetSender().GetLogin()
+
+	if strings.HasSuffix(sender, "[bot]") {
+		log.Printf("Ignoring review_requested from bot: %s", sender)
+		return
+	}
+
 	installationID := event.GetInstallation().GetID()
 	owner := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
-	sender := event.GetSender().GetLogin()
 	prURL := event.GetPullRequest().GetHTMLURL()
 	repoURL := event.GetRepo().GetHTMLURL()
 
