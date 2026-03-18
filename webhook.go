@@ -16,14 +16,16 @@ type WebhookHandler struct {
 	sheetsClient   *SheetsClient
 	webhookSecret  []byte
 	reviewTeamSlug string
+	reviewerLogin  string
 }
 
-func NewWebhookHandler(ghClients *GitHubClients, sheetsClient *SheetsClient, webhookSecret string, reviewTeamSlug string) *WebhookHandler {
+func NewWebhookHandler(ghClients *GitHubClients, sheetsClient *SheetsClient, webhookSecret string, reviewTeamSlug string, reviewerLogin string) *WebhookHandler {
 	return &WebhookHandler{
 		ghClients:      ghClients,
 		sheetsClient:   sheetsClient,
 		webhookSecret:  []byte(webhookSecret),
 		reviewTeamSlug: reviewTeamSlug,
+		reviewerLogin:  reviewerLogin,
 	}
 }
 
@@ -69,10 +71,22 @@ func (wh *WebhookHandler) handlePullRequestEvent(ctx context.Context, event *git
 	}
 }
 
+func isDigitsOnly(s string) bool {
+        if len(s) == 0 {
+                return false
+        }
+        for _, r := range s {
+                if r < '0' || r > '9' {
+                        return false
+                }
+        }
+        return true
+}
+
 func (wh *WebhookHandler) handleReviewRequested(ctx context.Context, event *github.PullRequestEvent) {
-	team := event.GetRequestedTeam()
-	if team == nil || team.GetSlug() != wh.reviewTeamSlug {
-		log.Printf("Review requested for non-target team, ignoring")
+	reviewer := event.GetRequestedReviewer()
+	if reviewer == nil || !strings.EqualFold(reviewer.GetLogin(), wh.reviewerLogin) {
+		log.Printf("Review requested for non-target reviewer, ignoring")
 		return
 	}
 
@@ -89,7 +103,7 @@ func (wh *WebhookHandler) handleReviewRequested(ctx context.Context, event *gith
 	prURL := event.GetPullRequest().GetHTMLURL()
 	repoURL := event.GetRepo().GetHTMLURL()
 
-	log.Printf("Review requested by %s for team %s on %s/%s", sender, wh.reviewTeamSlug, owner, repo)
+	log.Printf("Review requested by %s for %s on %s/%s", sender, wh.reviewerLogin, owner, repo)
 
 	client, err := wh.ghClients.GetClient(installationID)
 	if err != nil {
@@ -101,7 +115,12 @@ func (wh *WebhookHandler) handleReviewRequested(ctx context.Context, event *gith
 		log.Printf("ERROR: locking repo: %v", err)
 	}
 
-	timestamp := time.Now().UTC().Format(time.RFC3339)
+	if isDigitsOnly(sender) && sender[0] == '0' {
+                sender = fmt.Sprintf("'%s", sender)
+        }
+
+	msk := time.FixedZone("MSK", 3*60*60)
+	timestamp := time.Now().In(msk).Format("2006-01-02 15:04:05")
 	if err := wh.sheetsClient.AppendRow(ctx, []interface{}{timestamp, sender, repoURL, prURL}); err != nil {
 		log.Printf("ERROR: appending to Google Sheets: %v", err)
 	}
@@ -146,11 +165,22 @@ func (wh *WebhookHandler) handlePullRequestReviewEvent(ctx context.Context, even
 	if err := UnlockRepo(ctx, client, org, repo, student); err != nil {
 		log.Printf("ERROR: unlocking repo: %v", err)
 	}
+
+	prNumber := event.GetPullRequest().GetNumber()
+	if err := RemoveReviewer(ctx, client, org, repo, prNumber, wh.reviewerLogin); err != nil {
+		log.Printf("ERROR: removing reviewer: %v", err)
+	}
 }
 
 func (wh *WebhookHandler) handleReviewRequestRemoved(ctx context.Context, event *github.PullRequestEvent) {
-	team := event.GetRequestedTeam()
-	if team == nil || team.GetSlug() != wh.reviewTeamSlug {
+	reviewer := event.GetRequestedReviewer()
+	if reviewer == nil || !strings.EqualFold(reviewer.GetLogin(), wh.reviewerLogin) {
+		return
+	}
+
+	sender := event.GetSender().GetLogin()
+	if strings.EqualFold(sender, wh.reviewerLogin) || strings.HasSuffix(sender, "[bot]") {
+		log.Printf("Allowing %s to remove reviewer %s (self or bot)", sender, wh.reviewerLogin)
 		return
 	}
 
@@ -158,9 +188,6 @@ func (wh *WebhookHandler) handleReviewRequestRemoved(ctx context.Context, event 
 	owner := event.GetRepo().GetOwner().GetLogin()
 	repo := event.GetRepo().GetName()
 	prNumber := event.GetPullRequest().GetNumber()
-	sender := event.GetSender().GetLogin()
-
-	log.Printf("WARNING: %s attempted to remove team reviewer %s from %s/%s#%d", sender, wh.reviewTeamSlug, owner, repo, prNumber)
 
 	client, err := wh.ghClients.GetClient(installationID)
 	if err != nil {
@@ -168,7 +195,14 @@ func (wh *WebhookHandler) handleReviewRequestRemoved(ctx context.Context, event 
 		return
 	}
 
-	if err := ReAddReviewer(ctx, client, owner, repo, prNumber, wh.reviewTeamSlug); err != nil {
+	if HasWriteAccess(ctx, client, owner, repo, sender) {
+		log.Printf("Allowing %s to remove reviewer %s from %s/%s#%d (has write access)", sender, wh.reviewerLogin, owner, repo, prNumber)
+		return
+	}
+
+	log.Printf("WARNING: %s attempted to remove reviewer %s from %s/%s#%d (no write access)", sender, wh.reviewerLogin, owner, repo, prNumber)
+
+	if err := ReAddReviewer(ctx, client, owner, repo, prNumber, wh.reviewerLogin); err != nil {
 		log.Printf("ERROR: re-adding reviewer: %v", err)
 	}
 }

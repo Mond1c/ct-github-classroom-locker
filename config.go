@@ -11,6 +11,7 @@ type Config struct {
 	GitHubPrivateKeyPath   string
 	GitHubWebhookSecret    string
 	ReviewTeamSlug         string
+	ReviewerLogin          string
 	GoogleCredentialsPath  string
 	GoogleSheetID          string
 	ListenAddr             string
@@ -41,6 +42,11 @@ func LoadConfig() (*Config, error) {
 		reviewTeamSlug = "teachers"
 	}
 
+	reviewerLogin := os.Getenv("REVIEWER_LOGIN")
+	if reviewerLogin == "" {
+		reviewerLogin = "Mond1c"
+	}
+
 	googleCredentialsPath := os.Getenv("GOOGLE_SHEETS_CREDENTIALS_PATH")
 	if googleCredentialsPath == "" {
 		return nil, fmt.Errorf("GOOGLE_SHEETS_CREDENTIALS_PATH is required")
@@ -61,6 +67,7 @@ func LoadConfig() (*Config, error) {
 		GitHubPrivateKeyPath:  privateKeyPath,
 		GitHubWebhookSecret:   webhookSecret,
 		ReviewTeamSlug:        reviewTeamSlug,
+		ReviewerLogin:         reviewerLogin,
 		GoogleCredentialsPath: googleCredentialsPath,
 		GoogleSheetID:         googleSheetID,
 		ListenAddr:            listenAddr,

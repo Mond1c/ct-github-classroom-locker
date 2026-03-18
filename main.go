@@ -25,7 +25,7 @@ func main() {
 		log.Fatalf("Failed to create Google Sheets client: %v", err)
 	}
 
-	webhookHandler := NewWebhookHandler(ghClients, sheetsClient, cfg.GitHubWebhookSecret, cfg.ReviewTeamSlug)
+	webhookHandler := NewWebhookHandler(ghClients, sheetsClient, cfg.GitHubWebhookSecret, cfg.ReviewTeamSlug, cfg.ReviewerLogin)
 
 	mux := http.NewServeMux()
 	mux.Handle("/webhook", webhookHandler)

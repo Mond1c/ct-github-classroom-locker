@@ -93,13 +93,34 @@ func findStudent(ctx context.Context, client *github.Client, owner, repo string)
 	return "", fmt.Errorf("no student collaborator found on %s/%s", owner, repo)
 }
 
-func ReAddReviewer(ctx context.Context, client *github.Client, owner, repo string, prNumber int, teamSlug string) error {
+func HasWriteAccess(ctx context.Context, client *github.Client, owner, repo, username string) bool {
+	perm, _, err := client.Repositories.GetPermissionLevel(ctx, owner, repo, username)
+	if err != nil {
+		log.Printf("ERROR: checking permission for %s on %s/%s: %v", username, owner, repo, err)
+		return false
+	}
+	level := perm.GetPermission()
+	return level == "write" || level == "admin"
+}
+
+func ReAddReviewer(ctx context.Context, client *github.Client, owner, repo string, prNumber int, login string) error {
 	_, _, err := client.PullRequests.RequestReviewers(ctx, owner, repo, prNumber, github.ReviewersRequest{
-		TeamReviewers: []string{teamSlug},
+		Reviewers: []string{login},
 	})
 	if err != nil {
-		return fmt.Errorf("re-adding team reviewer %s to %s/%s#%d: %w", teamSlug, owner, repo, prNumber, err)
+		return fmt.Errorf("re-adding reviewer %s to %s/%s#%d: %w", login, owner, repo, prNumber, err)
 	}
-	log.Printf("Re-added team reviewer %s to %s/%s#%d", teamSlug, owner, repo, prNumber)
+	log.Printf("Re-added reviewer %s to %s/%s#%d", login, owner, repo, prNumber)
+	return nil
+}
+
+func RemoveReviewer(ctx context.Context, client *github.Client, owner, repo string, prNumber int, login string) error {
+	_, err := client.PullRequests.RemoveReviewers(ctx, owner, repo, prNumber, github.ReviewersRequest{
+		Reviewers: []string{login},
+	})
+	if err != nil {
+		return fmt.Errorf("removing reviewer %s from %s/%s#%d: %w", login, owner, repo, prNumber, err)
+	}
+	log.Printf("Removed reviewer %s from %s/%s#%d", login, owner, repo, prNumber)
 	return nil
 }

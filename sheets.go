@@ -30,7 +30,7 @@ func (sc *SheetsClient) AppendRow(ctx context.Context, values []interface{}) err
 		Values: [][]interface{}{values},
 	}
 
-	_, err := sc.service.Spreadsheets.Values.Append(sc.sheetID, "Testing!A:D", valueRange).
+	_, err := sc.service.Spreadsheets.Values.Append(sc.sheetID, "ReviewRequest!A:D", valueRange).
 		ValueInputOption("USER_ENTERED").
 		InsertDataOption("INSERT_ROWS").
 		Context(ctx).
